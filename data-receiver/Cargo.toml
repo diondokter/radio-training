@@ -1,0 +1,22 @@
+[package]
+name = "data-receiver"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+embassy-executor = { version = "0.5.0", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
+embassy-time = { version = "0.3.0", features = [] }
+embassy-stm32 = { version = "0.1.0", features = ["defmt", "stm32f446ze", "unstable-pac", "exti", "rt", "memory-x", "time", "time-driver-any"] }
+embassy-sync = { version = "0.5.0", features = ["defmt"] }
+embassy-futures = "0.1.0"
+defmt = "0.3.5"
+defmt-rtt = "0.4.0"
+panic-probe = { version = "0.3.0", features = ["print-defmt"] }
+cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
+cortex-m-rt = "0.7.3"
+
+[profile.release]
+debug = true
+lto = true
