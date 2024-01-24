@@ -1,10 +1,10 @@
 #![no_main]
 #![no_std]
 
+use crate::adc::Adc;
 use defmt_rtt as _;
 use embassy_stm32::{
-    adc::Adc,
-    peripherals::{ADC1, PA5},
+    peripherals::ADC1,
     rcc::{
         AHBPrescaler, APBPrescaler, Hse, HseMode, Pll, PllMul, PllPDiv, PllPreDiv, PllSource,
         Sysclk,
@@ -16,6 +16,8 @@ use embassy_time::{Duration, Timer};
 use panic_probe as _;
 
 const DATA_RATE: u64 = 2400;
+
+mod adc;
 
 #[embassy_executor::main]
 async fn main(_spawner: embassy_executor::Spawner) -> ! {
@@ -44,25 +46,26 @@ async fn main(_spawner: embassy_executor::Spawner) -> ! {
     let mut adc = Adc::new(dp.ADC1, &mut embassy_time::Delay);
     let mut adc_pin = dp.PA5;
 
+    adc.set_resolution(embassy_stm32::adc::Resolution::EightBit);
+    adc.set_sample_time(embassy_stm32::adc::SampleTime::Cycles3);
+    adc.set_running(&mut adc_pin);
+
     loop {
         let mut buffer = [0; 1024];
 
-        let len = receive_data(&mut adc, &mut adc_pin, &mut buffer).await;
+        let len = receive_data(&mut adc, &mut buffer).await;
 
         defmt::info!("{}", buffer[..len.min(1024)]);
     }
 }
 
-async fn receive_data(adc: &mut Adc<'_, ADC1>, adc_pin: &mut PA5, buffer: &mut [u8]) -> usize {
+async fn receive_data(adc: &mut Adc<'_, ADC1>, buffer: &mut [u8]) -> usize {
     buffer.fill(0);
-
-    adc.set_resolution(embassy_stm32::adc::Resolution::EightBit);
-    adc.set_sample_time(embassy_stm32::adc::SampleTime::Cycles3);
 
     let mut previous_state = None;
 
     defmt::info!("Waiting for start of transmission");
-    while (adc.read(adc_pin) as u8) < 25 {
+    while (adc.read() as u8) < 25 {
         Timer::after(Duration::from_hz(DATA_RATE * 4 * 4)).await;
     }
 
@@ -71,10 +74,10 @@ async fn receive_data(adc: &mut Adc<'_, ADC1>, adc_pin: &mut PA5, buffer: &mut [
             Timer::after(Duration::from_hz(DATA_RATE * 4 * 4)).await;
 
             let new_state = loop {
-                let mut adc_value = adc.read(adc_pin) as u8;
+                let mut adc_value = adc.read() as u8;
 
                 let adc_value = loop {
-                    let next_adc_value = adc.read(adc_pin) as u8;
+                    let next_adc_value = adc.read() as u8;
                     if adc_value.abs_diff(next_adc_value) < 20 {
                         break next_adc_value;
                     } else {
