@@ -100,8 +100,7 @@ where
         // Start conversion
         T::regs().cr2().modify(|reg| {
             reg.set_swstart(true);
-            reg.set_dma(false);
-            reg.set_eocs(embassy_stm32::pac::adc::vals::Eocs::EACHSEQUENCE);
+            reg.set_cont(embassy_stm32::pac::adc::vals::Cont::CONTINUOUS);
         });
 
         while T::regs().sr().read().strt() == false {

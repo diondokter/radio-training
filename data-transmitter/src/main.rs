@@ -3,12 +3,20 @@
 
 use defmt_rtt as _;
 use embassy_stm32::{
-    dac::{DacChannel, Value}, peripherals::{DAC, DMA1_CH5}, rcc::{AHBPrescaler, APBPrescaler, Hse, HseMode, Pll, PllMul, PllPDiv, PllPreDiv, PllSource, Sysclk}, time::hz, Config
+    dac::{DacChannel, Value},
+    peripherals::{DAC, DMA1_CH5},
+    rcc::{
+        AHBPrescaler, APBPrescaler, Hse, HseMode, Pll, PllMul, PllPDiv, PllPreDiv, PllSource,
+        Sysclk,
+    },
+    time::hz,
+    Config,
 };
 use embassy_time::{Ticker, Timer};
 use panic_probe as _;
+use shared::DATA_RATE;
 
-static TRANSMISSION: &[u8] = include_bytes!("../transmission.bin");
+mod bad_apple;
 
 #[embassy_executor::main]
 async fn main(_spawner: embassy_executor::Spawner) -> ! {
@@ -40,14 +48,11 @@ async fn main(_spawner: embassy_executor::Spawner) -> ! {
     dac.enable();
 
     loop {
-        defmt::info!("Transmitting data now");
-        transmit_data(
-            &mut dac,
-            &[0, 1],
-            2400,
-        )
-        .await;
-        Timer::after_secs(1).await;
+        for frame in bad_apple::BAD_APPLE_SEQUENCE {
+            assert_eq!(&frame[0..2], b"BM");
+            transmit_data(&mut dac, frame, DATA_RATE).await;
+            Timer::after_millis(shared::MILLIS_BETWEEN_TRANSMISSIONS).await;
+        }
     }
 }
 
@@ -64,6 +69,8 @@ async fn transmit_data(
     data: &[u8],
     data_rate: u64,
 ) {
+    defmt::info!("Transmitting data now");
+
     let mut previous_state = None;
     let mut ticker = Ticker::every(embassy_time::Duration::from_hz(data_rate * 4));
 
