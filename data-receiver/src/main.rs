@@ -142,7 +142,7 @@ async fn receive_data<const N: usize>(adc: &mut Adc<'_, ADC1>) -> heapless::Vec<
     for _ in 0..N {
         let mut byte = 0;
 
-        for i in (0..8).step_by(2) {
+        for i in (0..8).step_by(2).rev() {
             let mut previous_new_state = None;
 
             let new_state = loop {

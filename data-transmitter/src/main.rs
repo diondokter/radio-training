@@ -113,7 +113,7 @@ async fn transmit_data(
     let mut ticker = Ticker::every(embassy_time::Duration::from_hz(data_rate * 4));
 
     for byte in data {
-        for i in (0..8u8).step_by(2) {
+        for i in (0..8u8).step_by(2).rev() {
             let bits = (byte & (0x03 << i)) >> i;
 
             match previous_state.as_mut() {
