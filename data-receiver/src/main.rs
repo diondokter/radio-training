@@ -24,7 +24,6 @@ use embassy_time::{Duration, Timer};
 use embedded_graphics::{image::Image, prelude::*};
 use heapless::Vec;
 use panic_probe as _;
-use shared::DATA_RATE;
 use ssd1306::{prelude::*, Ssd1306};
 use static_cell::{make_static, StaticCell};
 use tinybmp::Bmp;
@@ -118,15 +117,15 @@ fn main() -> ! {
     );
 
     let next_frame = make_static!(embassy_sync::signal::Signal::new());
-    next_frame.reset();
+    let display_done = make_static!(embassy_sync::signal::Signal::new());
 
     interrupt::PVD.set_priority(interrupt::Priority::P15);
     let high_prio_spawner = EXECUTOR_HIGH.start(interrupt::PVD);
-    high_prio_spawner.must_spawn(data_receiver(adc, next_frame, wait_led));
+    high_prio_spawner.must_spawn(data_receiver(adc, next_frame, wait_led, display_done));
 
     let executor = EXECUTOR_LOW.init(Executor::new());
     executor.run(|spawner| {
-        spawner.must_spawn(display_drawer(display, next_frame, error_led));
+        spawner.must_spawn(display_drawer(display, next_frame, error_led, display_done));
     });
 }
 
@@ -137,14 +136,13 @@ async fn receive_data<const N: usize>(adc: &mut Adc<'_, ADC1>) -> heapless::Vec<
 
     defmt::info!("Waiting for start of transmission");
     while (adc.read() as u8) < 25 {
+        Timer::after(Duration::from_micros(1)).await;
     }
 
     for _ in 0..N {
         let mut byte = 0;
 
         for i in (0..8).step_by(2) {
-            Timer::after(Duration::from_hz(DATA_RATE * 4 * 4)).await;
-
             let mut previous_new_state = None;
 
             let new_state = loop {
@@ -233,14 +231,15 @@ type Display = Ssd1306<
 #[embassy_executor::task]
 async fn data_receiver(
     mut adc: Adc<'static, ADC1>,
-    next_frame: &'static Signal<CriticalSectionRawMutex, Vec<u8, 898>>,
+    next_frame: &'static Signal<CriticalSectionRawMutex, Vec<u8, 1280>>,
     mut wait_led: Output<'static, PB7>,
+    display_done: &'static Signal<CriticalSectionRawMutex, ()>,
 ) {
     loop {
         next_frame.signal(receive_data(&mut adc).await);
 
         wait_led.set_high();
-        Timer::after_millis(shared::MILLIS_BETWEEN_TRANSMISSIONS.saturating_sub(2)).await;
+        display_done.wait().await;
         wait_led.set_low();
     }
 }
@@ -248,8 +247,9 @@ async fn data_receiver(
 #[embassy_executor::task]
 async fn display_drawer(
     mut display: Display,
-    next_frame: &'static Signal<CriticalSectionRawMutex, Vec<u8, 898>>,
+    next_frame: &'static Signal<CriticalSectionRawMutex, Vec<u8, 1280>>,
     mut error_led: Output<'static, PB14>,
+    display_done: &'static Signal<CriticalSectionRawMutex, ()>,
 ) {
     loop {
         let next_frame = next_frame.wait().await;
@@ -270,5 +270,7 @@ async fn display_drawer(
         };
 
         display.flush().unwrap();
+
+        display_done.signal(());
     }
 }

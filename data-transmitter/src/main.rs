@@ -1,10 +1,15 @@
 #![no_main]
 #![no_std]
 
+use core::sync::atomic::AtomicUsize;
+
+use defmt::unwrap;
 use defmt_rtt as _;
 use embassy_stm32::{
     dac::{DacChannel, Value},
-    peripherals::{DAC, DMA1_CH5},
+    exti::ExtiInput,
+    gpio::Input,
+    peripherals::{DAC, DMA1_CH5, PC13},
     rcc::{
         AHBPrescaler, APBPrescaler, Hse, HseMode, Pll, PllMul, PllPDiv, PllPreDiv, PllSource,
         Sysclk,
@@ -12,14 +17,16 @@ use embassy_stm32::{
     time::hz,
     Config,
 };
-use embassy_time::{Ticker, Timer};
+use embassy_time::{Duration, Ticker, Timer};
 use panic_probe as _;
-use shared::DATA_RATE;
 
 mod bad_apple;
 
+const DATA_RATES: [u64; 5] = [1000, 3000, 6000, 16000, 32000];
+static SELECTED_DATA_RATE: AtomicUsize = AtomicUsize::new(2);
+
 #[embassy_executor::main]
-async fn main(_spawner: embassy_executor::Spawner) -> ! {
+async fn main(spawner: embassy_executor::Spawner) -> ! {
     let mut config = Config::default();
 
     config.rcc.hse = Some(Hse {
@@ -47,12 +54,43 @@ async fn main(_spawner: embassy_executor::Spawner) -> ! {
     dac.set(Value::Bit8(0));
     dac.enable();
 
+    spawner.must_spawn(button_watcher(ExtiInput::new(
+        Input::new(dp.PC13, embassy_stm32::gpio::Pull::None),
+        dp.EXTI13,
+    )));
+
     loop {
         for frame in bad_apple::BAD_APPLE_SEQUENCE {
             assert_eq!(&frame[0..2], b"BM");
-            transmit_data(&mut dac, frame, DATA_RATE).await;
-            Timer::after_millis(shared::MILLIS_BETWEEN_TRANSMISSIONS).await;
+            transmit_data(
+                &mut dac,
+                frame,
+                DATA_RATES[SELECTED_DATA_RATE.load(core::sync::atomic::Ordering::SeqCst)],
+            )
+            .await;
+            Timer::after_millis(10).await; // Give time for processing on the receiver
         }
+    }
+}
+
+#[embassy_executor::task]
+async fn button_watcher(mut button: ExtiInput<'static, PC13>) {
+    loop {
+        button.wait_for_falling_edge().await;
+
+        unwrap!(SELECTED_DATA_RATE.fetch_update(
+            core::sync::atomic::Ordering::SeqCst,
+            core::sync::atomic::Ordering::SeqCst,
+            |x| Some((x + 1) % DATA_RATES.len()),
+        ));
+
+        defmt::info!(
+            "New datarate: {}",
+            DATA_RATES[SELECTED_DATA_RATE.load(core::sync::atomic::Ordering::SeqCst)]
+        );
+
+        // Stop bouncing
+        Timer::after(Duration::from_millis(200)).await;
     }
 }
 
