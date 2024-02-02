@@ -82,6 +82,14 @@ fn main() -> ! {
         display_spi_config,
     );
 
+    let mut display_reset = Output::new(
+        dp.PB4,
+        embassy_stm32::gpio::Level::High,
+        embassy_stm32::gpio::Speed::Low,
+    );
+    display_reset.set_low();
+    display_reset.set_high();
+
     let mut display = Ssd1306::new(
         SPIInterface::new(
             display_spi,
